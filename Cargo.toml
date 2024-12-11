@@ -1,0 +1,15 @@
+[package]
+name = "iced_curve_editor"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# iced = { version = "0.12", features = ["wgpu", "svg", "canvas"] }
+iced = { version = "0.13", features = ["wgpu", "svg", "canvas", "advanced"] }
+# iced_core = "0.13"
+# iced_renderer = "0.13"
+# iced_widget = { version = "0.13", features = ["canvas", "svg"] }
+# iced_winit = { version = "0.13" }
+# iced_runtime = "0.13"
+# iced_graphics = "0.13"
+# iced_futures = { version = "0.13", features = ["tokio"] }
