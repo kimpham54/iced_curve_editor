@@ -1,12 +1,13 @@
-use iced::widget::{canvas, container, hover, Canvas, button, horizontal_space};
-// use iced::{border, mouse, Color, Length, Point, Rectangle, Renderer, Size};
-use iced::{Element, Fill, Theme};
+use iced::widget::{button, canvas, container, horizontal_space, hover, Canvas};
+// use iced::{border, Color, Length, Renderer, Size};
+use iced::widget::canvas::{Path, Stroke};
+use iced::{mouse, Element, Fill, Point, Rectangle, Theme};
 
 pub fn main() -> iced::Result {
     // Entry point of the application. This initializes and runs the application.
     // `iced::application` creates an application instance, passing the update and view methods.
     iced::application(
-        "Curve Editor Tool - Iced",
+        "Point and Curve Editor Tool - A Rust Iced application",
         ExampleCanvas::update,
         ExampleCanvas::view,
     )
@@ -16,8 +17,9 @@ pub fn main() -> iced::Result {
 
 #[derive(Default)]
 struct ExampleCanvas {
-    drawdot: DotState,
-    dots: Vec<Dot>, // Stores all drawn points.
+    dotstate: DotState,
+    dots: Vec<Dot>,
+    straight_mode: bool,
 }
 
 impl ExampleCanvas {
@@ -25,13 +27,19 @@ impl ExampleCanvas {
         match message {
             Message::AddDot(dot) => {
                 self.dots.push(dot);
-                dbg!(&self.dots);
-                self.drawdot.request_redraw();
-
+                // dbg!(&self.dots);
+                self.dotstate.request_redraw();
             }
             Message::Clear => {
-                self.drawdot = DotState::default();
+                self.dotstate = DotState::default();
                 self.dots.clear()
+            }
+            Message::Straight => {
+                // todo: replace placeholder functionality for straight line creation
+            }
+
+            Message::Curve => {
+                // todo: replace placeholder functionality for curve line creation
             }
         }
     }
@@ -39,14 +47,21 @@ impl ExampleCanvas {
     /// Builds the user interface (UI) for the application.
     fn view(&self) -> Element<Message> {
         container(hover(
-            self.drawdot.view(&self.dots).map(Message::AddDot),
+            self.dotstate.view(&self.dots).map(Message::AddDot),
             if self.dots.is_empty() {
                 container(horizontal_space())
             } else {
                 container(
-                    button("Clear")
-                        .style(button::danger)
-                        .on_press(Message::Clear),
+                    iced::widget::column![
+                        button("Clear")
+                            .style(button::danger)
+                            .on_press(Message::Clear),
+                        button("Straight")
+                            .on_press(Message::Straight),
+                        button("Curve")
+                            .on_press(Message::Curve)
+                    ]
+                    .spacing(10), // Add spacing between the buttons
                 )
                 .padding(10)
                 .align_right(Fill)
@@ -54,13 +69,14 @@ impl ExampleCanvas {
         ))
         .padding(20)
         .into()
-    }
-}
+    }}
 
 #[derive(Debug, Clone, Copy)]
 enum Message {
-    AddDot(Dot), // Message to add a new curve.
-    Clear,               // Message to clear all points.
+    AddDot(Dot), // Message to add a new point.
+    Clear,       // Message to clear all points.
+    Straight,   // Toggle straight line connector mode.
+    Curve       // Toggle curve line connector mode.
 }
 
 struct DrawDot<'a> {
@@ -94,8 +110,8 @@ impl canvas::Program<Dot> for DrawDot<'_> {
         &self,
         _state: &mut Self::State,
         event: iced::widget::canvas::event::Event,
-        bounds: iced::Rectangle,
-        cursor: iced::mouse::Cursor,
+        bounds: Rectangle,
+        cursor: mouse::Cursor,
     ) -> (iced::widget::canvas::event::Status, Option<Dot>) {
         // Only handle events when the cursor is inside the canvas.
         let Some(cursor_position) = cursor.position_in(bounds) else {
@@ -121,15 +137,21 @@ impl canvas::Program<Dot> for DrawDot<'_> {
         &self,
         _state: &Self::State,
         renderer: &iced::Renderer,
-        _theme: &iced::Theme,
+        theme: &iced::Theme,
         bounds: iced::Rectangle,
         _cursor: iced::mouse::Cursor,
     ) -> Vec<iced::widget::canvas::Geometry> {
         let content = self.state.cache.draw(renderer, bounds.size(), |frame| {
             // Iterate through all the dots and draw them on the canvas.
+            frame.stroke(
+                // border
+                &Path::rectangle(Point::ORIGIN, frame.size()),
+                Stroke::default()
+                    .with_width(2.0)
+                    .with_color(theme.palette().text),
+            );
             for dot in self.dots {
-                // Directly use the x and y fields of the iced::Point.
-                // Draw a filled circle at the position of the dot.
+                // Use the x and y fields of the iced::Point to draw a circle at dot position.
                 frame.fill(
                     &iced::widget::canvas::Path::circle(dot.position, 5.0), // Use *position to dereference the Point reference.
                     iced::Color {
@@ -150,3 +172,8 @@ impl canvas::Program<Dot> for DrawDot<'_> {
 struct Dot {
     position: iced::Point,
 }
+
+// impl Dot{
+// fn draw_all(curves: &[Curve], frame: &mut Frame, theme: &Theme) {
+// }
+// }
