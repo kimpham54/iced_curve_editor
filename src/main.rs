@@ -27,17 +27,21 @@ impl ExampleCanvas {
         match message {
             Message::AddDot(dot) => {
                 self.dots.push(dot);
-                // dbg!(&self.dots);
                 self.dotstate.request_redraw();
+                // dbg!(&self.dots);
+                if self.straight_mode {
+                    self.dotstate.request_redraw(); // Ensure lines are regenerated
+                }
             }
             Message::Clear => {
                 self.dotstate = DotState::default();
-                self.dots.clear()
+                self.dots.clear();
+                self.straight_mode = false; // Reset the mode
             }
             Message::Straight => {
-                // todo: replace placeholder functionality for straight line creation
+                self.straight_mode = !self.straight_mode; // Toggle the mode
+                self.dotstate.request_redraw(); // Redraw to show/hide lines
             }
-
             Message::Curve => {
                 // todo: replace placeholder functionality for curve line creation
             }
@@ -47,7 +51,9 @@ impl ExampleCanvas {
     /// Builds the user interface (UI) for the application.
     fn view(&self) -> Element<Message> {
         container(hover(
-            self.dotstate.view(&self.dots).map(Message::AddDot),
+            self.dotstate
+                .view(&self.dots, self.straight_mode)
+                .map(Message::AddDot),
             if self.dots.is_empty() {
                 container(horizontal_space())
             } else {
@@ -56,12 +62,15 @@ impl ExampleCanvas {
                         button("Clear")
                             .style(button::danger)
                             .on_press(Message::Clear),
-                        button("Straight")
-                            .on_press(Message::Straight),
-                        button("Curve")
-                            .on_press(Message::Curve)
+                        button(if self.straight_mode {
+                            "Straight: On"
+                        } else {
+                            "Straight: Off"
+                        })
+                        .on_press(Message::Straight),
+                        button("Curve").on_press(Message::Curve)
                     ]
-                    .spacing(10), // Add spacing between the buttons
+                    .spacing(10),
                 )
                 .padding(10)
                 .align_right(Fill)
@@ -69,19 +78,21 @@ impl ExampleCanvas {
         ))
         .padding(20)
         .into()
-    }}
+    }
+}
 
 #[derive(Debug, Clone, Copy)]
 enum Message {
     AddDot(Dot), // Message to add a new point.
     Clear,       // Message to clear all points.
-    Straight,   // Toggle straight line connector mode.
-    Curve       // Toggle curve line connector mode.
+    Straight,    // Toggle straight line connector mode on and off.
+    Curve,       // Toggle curve line connector mode between cubic bezier, catmull rom splines, and off.
 }
 
-struct DrawDot<'a> {
+struct DrawDotsAndLines<'a> {
     state: &'a DotState,
-    dots: &'a [Dot], // List of points to render.
+    dots: &'a [Dot],
+    straight_mode: bool,
 }
 
 #[derive(Default)]
@@ -90,11 +101,15 @@ struct DotState {
 }
 
 impl DotState {
-    pub fn view<'a>(&'a self, dots: &'a [Dot]) -> Element<'a, Dot> {
-        Canvas::new(DrawDot { state: self, dots })
-            .width(Fill)
-            .height(Fill)
-            .into()
+    pub fn view<'a>(&'a self, dots: &'a [Dot], straight_mode: bool) -> Element<'a, Dot> {
+        Canvas::new(DrawDotsAndLines {
+            state: self,
+            dots,
+            straight_mode,
+        }) //Pass straight_mode to DrawDotsandLines
+        .width(Fill)
+        .height(Fill)
+        .into()
     }
 
     pub fn request_redraw(&mut self) {
@@ -102,7 +117,7 @@ impl DotState {
     }
 }
 
-impl canvas::Program<Dot> for DrawDot<'_> {
+impl canvas::Program<Dot> for DrawDotsAndLines<'_> {
     type State = DotState;
 
     /// Handles events on the canvas, such as mouse clicks.
@@ -142,14 +157,14 @@ impl canvas::Program<Dot> for DrawDot<'_> {
         _cursor: iced::mouse::Cursor,
     ) -> Vec<iced::widget::canvas::Geometry> {
         let content = self.state.cache.draw(renderer, bounds.size(), |frame| {
-            // Iterate through all the dots and draw them on the canvas.
+            // Draw border
             frame.stroke(
-                // border
                 &Path::rectangle(Point::ORIGIN, frame.size()),
                 Stroke::default()
                     .with_width(2.0)
                     .with_color(theme.palette().text),
             );
+            // Draw dots - iterate list and draw on the canvas.
             for dot in self.dots {
                 // Use the x and y fields of the iced::Point to draw a circle at dot position.
                 frame.fill(
@@ -161,6 +176,24 @@ impl canvas::Program<Dot> for DrawDot<'_> {
                         a: 1.0,  // Fully opaque
                     }, // Use the theme's text color for the dot.
                 );
+            }
+
+            // Draw straight line connectors if "Straight" is active
+            if self.straight_mode {
+                let mut sorted_dots = self.dots.to_vec();
+                sorted_dots.sort_by(|a, b| a.position.x.partial_cmp(&b.position.x).unwrap());
+
+                for i in 0..sorted_dots.len() - 1 {
+                    let start = sorted_dots[i].position;
+                    let end = sorted_dots[i + 1].position;
+
+                    frame.stroke(
+                        &iced::widget::canvas::Path::line(start, end),
+                        iced::widget::canvas::Stroke::default()
+                            .with_width(2.0)
+                            .with_color(theme.palette().text),
+                    );
+                }
             }
         });
 
