@@ -1444,6 +1444,7 @@ name = "iced_curve_editor"
 version = "0.1.0"
 dependencies = [
  "iced",
+ "uniform-cubic-splines",
 ]
 
 [[package]]
@@ -1701,6 +1702,15 @@ checksum = "89234b2cc610a7dd927ebde6b41dd1a5d4214cffaef4cf1fb2195d592f92518f"
 dependencies = [
  "arrayvec",
  "smallvec",
+]
+
+[[package]]
+name = "lerp"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ecc56a024593ecbcacb6bb4f8f4ace719eb08ae9b701535640ef3efb0e706260"
+dependencies = [
+ "num-traits",
 ]
 
 [[package]]
@@ -3307,6 +3317,16 @@ name = "unicode-xid"
 version = "0.2.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ebc1c04c71510c7f702b52b7c350734c9ff1295c464a03335b00bb84fc54f853"
+
+[[package]]
+name = "uniform-cubic-splines"
+version = "0.1.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2b39f42649627bd75102772816dcbd9bf89d303221a2e187154d13e180be0e3f"
+dependencies = [
+ "lerp",
+ "num-traits",
+]
 
 [[package]]
 name = "usvg"

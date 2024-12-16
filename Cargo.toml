@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 # iced = { version = "0.12", features = ["wgpu", "svg", "canvas"] }
 iced = { version = "0.13", features = ["wgpu", "svg", "canvas", "advanced"] }
+uniform-cubic-splines = { version = "0.1" }
 # iced_core = "0.13"
 # iced_renderer = "0.13"
 # iced_widget = { version = "0.13", features = ["canvas", "svg"] }
