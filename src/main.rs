@@ -1,3 +1,5 @@
+// IMPLEMENTS ALGORITHM MANUALLY
+
 use iced::widget::{button, canvas, container, horizontal_space, hover, Canvas};
 // use iced::{border, Color, Length, Renderer, Size};
 use iced::widget::canvas::{Path, Stroke};
@@ -91,7 +93,8 @@ impl ExampleCanvas {
                             "Straight: Off"
                         })
                         .on_press(Message::Straight),
-                        if self.dots.len() >= 4 { // in the crate, Catmull-Rom spline and linear basis require ≥4 values in the knot vector.
+                        if self.dots.len() >= 2 { // kim: in the crate, Catmull-Rom spline and linear basis require ≥4 values in the knot vector. 
+                            // i'm not using that crate anymore will try min 2
                             button(match self.curve_mode {
                                 None => "Curve: Off",
                                 Some(CurveAlgorithm::CatmullRom) => "Curve: Catmull-Rom",
@@ -303,58 +306,81 @@ impl canvas::Program<Dot> for DrawDotsAndLines<'_> {
                 }
             }
 
-            // Draw curve line connector
-            if let Some(curve_mode) = self.curve_mode {
-                let x_knots: Vec<f32> = sorted_dots.iter().map(|dot| dot.position.x).collect();
-                let y_knots: Vec<f32> = sorted_dots.iter().map(|dot| dot.position.y).collect();
-                let knot_spacing: Vec<f32> = (0..x_knots.len())
-                    .map(|i| i as f32 / (x_knots.len() - 1) as f32)
-                    .collect();
 
-                // Build the curve path
-                let mut path = Path::new(|builder| {
-                    let n_points = 500; // Number of points to interpolate
-                    for i in 0..=n_points {
-                        let t = i as f32 / n_points as f32; // t ranges from 0.0 to 1.0
 
-                        // Map t to the spline parameter using spline_inverse
-                        if let (Some(vx), Some(vy)) = (
-                            spline_inverse::<CatmullRom, _>(t, &knot_spacing, None, None),
-                            spline_inverse::<CatmullRom, _>(t, &knot_spacing, None, None),
-                        ) {
-                            
-                            // Compute the x and y positions using the spline
-                            let (x, y) = match curve_mode {
-                                CurveAlgorithm::CatmullRom => {
-                                    let x = spline::<CatmullRom, _, _>(vx, &x_knots);
-                                    let y = spline::<CatmullRom, _, _>(vy, &y_knots);
-                                    (x, y)
-                                } CurveAlgorithm::Linear => {
-                                  let x = spline::<Linear, _, _>(vx, &x_knots);
-                                  let y = spline::<Linear, _, _>(vy, &y_knots);
-                                  (x, y)
-                                  }
-                            };
+ // Draw Catmull-Rom or Bézier curves
+ if let Some(curve_mode) = self.curve_mode {
+    let mut path = Path::new(|builder| {
+        let n_points = 200; // Number of interpolated points
 
-                            if i == 0 {
-                                builder.move_to(Point { x, y });
-                            } else {
-                                builder.line_to(Point { x, y });
-                            }
-                        }
-                    }
-                });
+        for i in 0..n_points {
+            let t = i as f32 / (n_points - 1) as f32;
+            let segment_index = ((sorted_dots.len() - 1) as f32 * t).floor() as usize;
 
-                // Draw the curve
-                frame.stroke(
-                    &path,
-                    Stroke::default()
-                        .with_width(2.0)
-                        .with_color(theme.palette().text),
-                );
+            // Clamp control points for safe interpolation
+            let p0 = if segment_index == 0 {
+                &sorted_dots[segment_index]
+            } else {
+                &sorted_dots[segment_index - 1]
+            };
+            let p1 = &sorted_dots[segment_index];
+            let p2 = &sorted_dots[std::cmp::min(segment_index + 1, sorted_dots.len() - 1)];
+            let p3 = &sorted_dots[std::cmp::min(segment_index + 2, sorted_dots.len() - 1)];
+
+            let local_t = (t * (sorted_dots.len() - 1) as f32) % 1.0;
+
+            let (x, y) = match curve_mode {
+                CurveAlgorithm::CatmullRom => {
+                    let x = catmull_rom(local_t, p0.position.x, p1.position.x, p2.position.x, p3.position.x);
+                    let y = catmull_rom(local_t, p0.position.y, p1.position.y, p2.position.y, p3.position.y);
+                    (x, y)
+                }
+                CurveAlgorithm::Linear => {
+                    let x = bezier(local_t, p0.position.x, p1.position.x, p2.position.x, p3.position.x);
+                    let y = bezier(local_t, p0.position.y, p1.position.y, p2.position.y, p3.position.y);
+                    (x, y)
+                }
+            };
+
+            if i == 0 {
+                builder.move_to(Point { x, y });
+            } else {
+                builder.line_to(Point { x, y });
             }
-        });
+        }
+    });
+
+    frame.stroke(
+        &path,
+        Stroke::default()
+            .with_width(2.0)
+            .with_color(theme.palette().text),
+    );
+}
+}
+        );
 
         vec![content]
     }
+}
+
+fn catmull_rom(t: f32, p0: f32, p1: f32, p2: f32, p3: f32) -> f32 {
+    let t2 = t * t;
+    let t3 = t2 * t;
+
+    0.5
+        * ((2.0 * p1)
+            + (-p0 + p2) * t
+            + (2.0 * p0 - 5.0 * p1 + 4.0 * p2 - p3) * t2
+            + (-p0 + 3.0 * p1 - 3.0 * p2 + p3) * t3)
+}
+
+fn bezier(t: f32, p0: f32, p1: f32, p2: f32, p3: f32) -> f32 {
+    let t2 = t * t;
+    let t3 = t2 * t;
+    let u = 1.0 - t;
+    let u2 = u * u;
+    let u3 = u2 * u;
+
+    (u3 * p0) + (3.0 * u2 * t * p1) + (3.0 * u * t2 * p2) + (t3 * p3)
 }
