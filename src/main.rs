@@ -26,7 +26,6 @@ struct ExampleCanvas {
 #[derive(Debug, Clone, Copy)]
 enum CurveAlgorithm {
     CatmullRom,
-    Linear,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -34,7 +33,7 @@ enum Message {
     AddDot(Dot), // Message to add a new point.
     Clear,       // Message to clear all points.
     Straight,    // Toggle straight line connector mode on and off.
-    Curve, // Toggle curve line connector mode between linear, catmull rom splines, and off.
+    Curve, // Toggle curve line connector mode between catmull rom splines and off, can add more in future if needed
 }
 
 impl ExampleCanvas {
@@ -58,12 +57,10 @@ impl ExampleCanvas {
                 self.dotstate.request_redraw(); // Redraw to show/hide lines
             }
             Message::Curve => {
-                // Cycle through curve modes: Catmull-Rom -> Cubic Bézier -> Off
+                // Cycle through curve modes: Off -> Catmull-Rom -> Off
                 self.curve_mode = match self.curve_mode {
-                    // None => Some(CurveAlgorithm::CatmullRom), // 1st press
-                    None => Some(CurveAlgorithm::Linear), // 1st press
-                    Some(CurveAlgorithm::Linear) => Some(CurveAlgorithm::CatmullRom), // 2nd press
-                    Some(CurveAlgorithm::CatmullRom) => None, // 3rd press
+                    None => Some(CurveAlgorithm::CatmullRom), // 1st press
+                    Some(CurveAlgorithm::CatmullRom) => None, // 2nd press
                 };
                 self.dotstate.request_redraw();
             }
@@ -90,12 +87,10 @@ impl ExampleCanvas {
                             "Straight: Off"
                         })
                         .on_press(Message::Straight),
-                        if self.dots.len() >= 2 { // kim: in the crate, Catmull-Rom spline and linear basis require ≥4 values in the knot vector. 
-                            // i'm not using that crate anymore will try min 2
+                        if self.dots.len() >= 2 { // Only enable curve button if there are >2 points
                             button(match self.curve_mode {
                                 None => "Curve: Off",
                                 Some(CurveAlgorithm::CatmullRom) => "Curve: Catmull-Rom",
-                                Some(CurveAlgorithm::Linear) => "Curve: Linear",
                             })
                             .on_press(Message::Curve) // Button is active
                         } else {
@@ -332,11 +327,11 @@ impl canvas::Program<Dot> for DrawDotsAndLines<'_> {
                     let y = catmull_rom_centripetal(local_t, p0.position.y, p1.position.y, p2.position.y, p3.position.y, 0.5);
                     (x, y)
                 }
-                CurveAlgorithm::Linear => {
-                    let x = bezier(local_t, p0.position.x, p1.position.x, p2.position.x, p3.position.x);
-                    let y = bezier(local_t, p0.position.y, p1.position.y, p2.position.y, p3.position.y);
-                    (x, y)
-                }
+                // CurveAlgorithm::Bezier => {
+                //     let x = bezier(local_t, p0.position.x, p1.position.x, p2.position.x, p3.position.x);
+                //     let y = bezier(local_t, p0.position.y, p1.position.y, p2.position.y, p3.position.y);
+                //     (x, y)
+                // }
             };
 
             if i == 0 {
@@ -359,17 +354,6 @@ impl canvas::Program<Dot> for DrawDotsAndLines<'_> {
 
         vec![content]
     }
-}
-
-fn catmull_rom(t: f32, p0: f32, p1: f32, p2: f32, p3: f32) -> f32 {
-    let t2 = t * t;
-    let t3 = t2 * t;
-
-    0.5
-        * ((2.0 * p1)
-            + (-p0 + p2) * t
-            + (2.0 * p0 - 5.0 * p1 + 4.0 * p2 - p3) * t2
-            + (-p0 + 3.0 * p1 - 3.0 * p2 + p3) * t3)
 }
 
 fn safe_powf_distance(a: f32, b: f32, alpha: f32) -> f32 {
@@ -412,14 +396,4 @@ fn catmull_rom_centripetal(
     let b2 = (t3 - t) / (t3 - t1) * a2 + (t - t1) / (t3 - t1) * a3;
 
     (t2 - t) / (t2 - t1) * b1 + (t - t1) / (t2 - t1) * b2
-}
-
-fn bezier(t: f32, p0: f32, p1: f32, p2: f32, p3: f32) -> f32 {
-    let t2 = t * t;
-    let t3 = t2 * t;
-    let u = 1.0 - t;
-    let u2 = u * u;
-    let u3 = u2 * u;
-
-    (u3 * p0) + (3.0 * u2 * t * p1) + (3.0 * u * t2 * p2) + (t3 * p3)
 }
