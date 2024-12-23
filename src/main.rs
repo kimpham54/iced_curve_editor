@@ -1,10 +1,7 @@
 // IMPLEMENTS ALGORITHM MANUALLY
-
 use iced::widget::{button, canvas, container, horizontal_space, hover, Canvas};
-// use iced::{border, Color, Length, Renderer, Size};
 use iced::widget::canvas::{Path, Stroke};
 use iced::{mouse, Element, Fill, Point, Rectangle, Theme};
-use uniform_cubic_splines::{basis::Bezier, basis::CatmullRom, basis::Linear, spline, spline_inverse};
 
 pub fn main() -> iced::Result {
     // Entry point of the application. This initializes and runs the application.
@@ -331,8 +328,8 @@ impl canvas::Program<Dot> for DrawDotsAndLines<'_> {
 
             let (x, y) = match curve_mode {
                 CurveAlgorithm::CatmullRom => {
-                    let x = catmull_rom(local_t, p0.position.x, p1.position.x, p2.position.x, p3.position.x);
-                    let y = catmull_rom(local_t, p0.position.y, p1.position.y, p2.position.y, p3.position.y);
+                    let x = catmull_rom_centripetal(local_t, p0.position.x, p1.position.x, p2.position.x, p3.position.x, 0.5);
+                    let y = catmull_rom_centripetal(local_t, p0.position.y, p1.position.y, p2.position.y, p3.position.y, 0.5);
                     (x, y)
                 }
                 CurveAlgorithm::Linear => {
@@ -373,6 +370,48 @@ fn catmull_rom(t: f32, p0: f32, p1: f32, p2: f32, p3: f32) -> f32 {
             + (-p0 + p2) * t
             + (2.0 * p0 - 5.0 * p1 + 4.0 * p2 - p3) * t2
             + (-p0 + 3.0 * p1 - 3.0 * p2 + p3) * t3)
+}
+
+fn safe_powf_distance(a: f32, b: f32, alpha: f32) -> f32 {
+    let dist = (a - b).abs();
+    if dist < 1e-9 {
+        // fallback to small epsilon
+        1e-9_f32.powf(alpha)
+    } else {
+        dist.powf(alpha)
+    }
+}
+
+fn catmull_rom_centripetal(
+    t: f32, p0: f32, p1: f32, p2: f32, p3: f32, alpha: f32) -> f32 {
+    let d01 = safe_powf_distance(p0, p1, alpha);
+    let d12 = safe_powf_distance(p1, p2, alpha);
+    let d23 = safe_powf_distance(p2, p3, alpha);
+
+    let t0 = 0.0;
+    let t1 = t0 + d01;
+    let t2 = t1 + d12;
+    let t3 = t2 + d23;
+
+    // We only interpolate between p1 and p2, so we re-map t from [0..1] to [t1..t2].
+    let t = t1 + (t * (t2 - t1));
+
+    // If t1==t0, t2==t1, or t3==t2 (which can happen if d01/d12/d23 = 0), we can early-return:
+    if (t1 - t0).abs() < 1e-12 || (t2 - t1).abs() < 1e-12 || (t3 - t2).abs() < 1e-12 {
+        // fallback: linear interpolation or just pick p1
+        return p1;
+    }
+
+    // ... compute A1, A2, A3
+    let a1 = (t1 - t) / (t1 - t0) * p0 + (t - t0) / (t1 - t0) * p1;
+    let a2 = (t2 - t) / (t2 - t1) * p1 + (t - t1) / (t2 - t1) * p2;
+    let a3 = (t3 - t) / (t3 - t2) * p2 + (t - t2) / (t3 - t2) * p3;
+
+    // ... then B1, B2, final
+    let b1 = (t2 - t) / (t2 - t0) * a1 + (t - t0) / (t2 - t0) * a2;
+    let b2 = (t3 - t) / (t3 - t1) * a2 + (t - t1) / (t3 - t1) * a3;
+
+    (t2 - t) / (t2 - t1) * b1 + (t - t1) / (t2 - t1) * b2
 }
 
 fn bezier(t: f32, p0: f32, p1: f32, p2: f32, p3: f32) -> f32 {
