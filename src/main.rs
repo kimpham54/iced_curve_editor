@@ -1,7 +1,8 @@
 // IMPLEMENTS ALGORITHM MANUALLY
-use iced::widget::{button, canvas, container, horizontal_space, hover, Canvas};
 use iced::widget::canvas::{Path, Stroke};
+use iced::widget::{button, canvas, container, horizontal_space, hover, Canvas};
 use iced::{mouse, Element, Fill, Point, Rectangle, Theme};
+use splines::{Interpolation, Key, Spline};
 
 pub fn main() -> iced::Result {
     // Entry point of the application. This initializes and runs the application.
@@ -21,11 +22,14 @@ struct ExampleCanvas {
     dots: Vec<Dot>,
     straight_mode: bool,
     curve_mode: Option<CurveAlgorithm>,
+    delete_mode: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
 enum CurveAlgorithm {
     CatmullRom,
+    MonotonicSpline,
+    NaturalCubicSpline,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -34,6 +38,8 @@ enum Message {
     Clear,       // Message to clear all points.
     Straight,    // Toggle straight line connector mode on and off.
     Curve, // Toggle curve line connector mode between catmull rom splines and off, can add more in future if needed
+    DeleteMode,
+    DeleteDot(Point), //not Dot for easier proximity matching
 }
 
 impl ExampleCanvas {
@@ -60,9 +66,30 @@ impl ExampleCanvas {
                 // Cycle through curve modes: Off -> Catmull-Rom -> Off
                 self.curve_mode = match self.curve_mode {
                     None => Some(CurveAlgorithm::CatmullRom), // 1st press
-                    Some(CurveAlgorithm::CatmullRom) => None, // 2nd press
+                    Some(CurveAlgorithm::CatmullRom) => Some(CurveAlgorithm::MonotonicSpline),
+                    Some(CurveAlgorithm::MonotonicSpline) => Some(CurveAlgorithm::NaturalCubicSpline),
+                    Some(CurveAlgorithm::NaturalCubicSpline) => None, // 2nd press
+
+                                                             // Some(CurveAlgorithm::CatmullRom) => None, // 2nd press
                 };
                 self.dotstate.request_redraw();
+            }
+            Message::DeleteDot(position) => {
+                if self.delete_mode {
+                    // Find the nearest dot and remove it
+                    if let Some(index) = self
+                        .dots
+                        .iter()
+                        .position(|dot| (dot.position.x - position.x).abs() < 10.0 && (dot.position.y - position.y).abs() < 10.0)
+                    {
+                        self.dots.remove(index);
+                        self.dotstate.request_redraw();
+                    }
+                }
+            }
+            
+            Message::DeleteMode => {
+                self.delete_mode = !self.delete_mode; // Toggle delete mode
             }
         }
     }
@@ -71,8 +98,14 @@ impl ExampleCanvas {
     fn view(&self) -> Element<Message> {
         container(hover(
             self.dotstate
-                .view(&self.dots, self.straight_mode, self.curve_mode)
-                .map(Message::AddDot),
+                .view(&self.dots, self.straight_mode, self.curve_mode, self.delete_mode)
+                .map(|dot| {
+                    if self.delete_mode {
+                        Message::DeleteDot(dot.position)
+                    } else {
+                        Message::AddDot(dot)
+                    }
+                }),
             if self.dots.is_empty() {
                 container(horizontal_space())
             } else {
@@ -87,15 +120,24 @@ impl ExampleCanvas {
                             "Straight: Off"
                         })
                         .on_press(Message::Straight),
-                        if self.dots.len() >= 2 { // Only enable curve button if there are >2 points
+                        if self.dots.len() >= 2 {
+                            // Only enable curve button if there are >2 points
                             button(match self.curve_mode {
                                 None => "Curve: Off",
                                 Some(CurveAlgorithm::CatmullRom) => "Curve: Catmull-Rom",
+                                Some(CurveAlgorithm::MonotonicSpline) => "Curve: Monotonic",
+                                Some(CurveAlgorithm::NaturalCubicSpline) => "Curve: Natural Cubic",
                             })
                             .on_press(Message::Curve) // Button is active
                         } else {
                             button("Curve: Disabled") // Button is disabled (no `on_press`)
-                        }
+                        },
+                        button(if self.delete_mode {
+                            "Delete Mode: On"
+                        } else {
+                            "Delete Mode: Off"
+                        })
+                        .on_press(Message::DeleteMode),
                     ]
                     .spacing(10),
                 )
@@ -129,12 +171,14 @@ impl DotState {
         dots: &'a [Dot],
         straight_mode: bool,
         curve_mode: Option<CurveAlgorithm>,
+        delete_mode: bool,
     ) -> Element<'a, Dot> {
         Canvas::new(DrawDotsAndLines {
             state: self,
             dots,
             straight_mode,
             curve_mode,
+            delete_mode
         }) //Pass straight_mode to DrawDotsandLines
         .width(Fill)
         .height(Fill)
@@ -150,6 +194,7 @@ struct DrawDotsAndLines<'a> {
     dots: &'a [Dot],
     straight_mode: bool,
     curve_mode: Option<CurveAlgorithm>,
+    delete_mode: bool,
 }
 
 impl canvas::Program<Dot> for DrawDotsAndLines<'_> {
@@ -169,18 +214,47 @@ impl canvas::Program<Dot> for DrawDotsAndLines<'_> {
         };
 
         // Handle left mouse button presses to add a new dot.
-        match event {
-            iced::widget::canvas::event::Event::Mouse(iced::mouse::Event::ButtonPressed(
-                iced::mouse::Button::Left,
-            )) => {
+    //     match event {
+    //         iced::widget::canvas::event::Event::Mouse(iced::mouse::Event::ButtonPressed(
+    //             iced::mouse::Button::Left,
+    //         )) => {
+    //             let dot = Dot {
+    //                 position: cursor_position,
+    //             };
+    //             (iced::widget::canvas::event::Status::Captured, Some(dot))
+    //         }
+    //         _ => (iced::widget::canvas::event::Status::Ignored, None),
+    //     }
+    // }
+
+    match event {
+        iced::widget::canvas::event::Event::Mouse(iced::mouse::Event::ButtonPressed(
+            iced::mouse::Button::Left,
+        )) => {
+            if self.delete_mode {
+                // Directly return the position for deletion
+                return (
+                    iced::widget::canvas::event::Status::Captured,
+                    Some(Dot {
+                        position: cursor_position,
+                    }),
+                );
+            } else {
+                // Handle adding a new dot
                 let dot = Dot {
                     position: cursor_position,
                 };
-                (iced::widget::canvas::event::Status::Captured, Some(dot))
+                return (
+                    iced::widget::canvas::event::Status::Captured,
+                    Some(dot),
+                );
             }
-            _ => (iced::widget::canvas::event::Status::Ignored, None),
         }
+        _ => (iced::widget::canvas::event::Status::Ignored, None),
     }
+}
+
+
 
     /// Draws the canvas content.
     fn draw(
@@ -250,38 +324,39 @@ impl canvas::Program<Dot> for DrawDotsAndLines<'_> {
             dbg!(&sorted_dots);
 
             if !self.dots.is_empty() {
-            if self.straight_mode || self.curve_mode.is_some() {
-                sorted_dots = self.dots.to_vec();
-                sorted_dots.sort_by(|a, b| a.position.x.partial_cmp(&b.position.x).unwrap());
-                let first_dot = sorted_dots.first().unwrap();
-                let last_dot = sorted_dots.last().unwrap();
-                let first_control_dot = Dot {
-                    position: Point {
-                        x: 0.0,
-                        y: first_dot.position.y,
-                    },
-                };
-                let last_control_dot = Dot {
-                    position: Point {
-                        x: bounds_width,
-                        y: last_dot.position.y,
-                    },
-                };
-                sorted_dots.push(first_control_dot);
-                sorted_dots.push(last_control_dot);
-                sorted_dots.sort_by(|a, b| a.position.x.partial_cmp(&b.position.x).unwrap());
-                dbg!(&sorted_dots);
+                if self.straight_mode || self.curve_mode.is_some() {
+                    sorted_dots = self.dots.to_vec();
+                    sorted_dots.sort_by(|a, b| a.position.x.partial_cmp(&b.position.x).unwrap());
+                    let first_dot = sorted_dots.first().unwrap();
+                    let last_dot = sorted_dots.last().unwrap();
+                    let first_control_dot = Dot {
+                        position: Point {
+                            x: 0.0,
+                            y: first_dot.position.y,
+                        },
+                    };
+                    let last_control_dot = Dot {
+                        position: Point {
+                            x: bounds_width,
+                            y: last_dot.position.y,
+                        },
+                    };
+                    sorted_dots.push(first_control_dot);
+                    sorted_dots.push(last_control_dot);
+                    sorted_dots.sort_by(|a, b| a.position.x.partial_cmp(&b.position.x).unwrap());
+                    dbg!(&sorted_dots);
 
-                // Prepare knots and knot spacing
-                // let first_dot = sorted_dots.first().unwrap();
-                // let last_dot = sorted_dots.last().unwrap();
-                // let mut x_knots: Vec<f32> = vec![0.0, last_dot.position.x]; // BUG: knots break if less than 4
-                // let mut y_knots: Vec<f32> = vec![first_dot.position.y, last_dot.position.y];
-                // x_knots.extend(sorted_dots.iter().map(|dot| dot.position.x));
-                // y_knots.extend(sorted_dots.iter().map(|dot| dot.position.y));
-                // x_knots.push(1.0);
-                // y_knots.push(last_dot.position.y);
-            }}
+                    // Prepare knots and knot spacing
+                    // let first_dot = sorted_dots.first().unwrap();
+                    // let last_dot = sorted_dots.last().unwrap();
+                    // let mut x_knots: Vec<f32> = vec![0.0, last_dot.position.x]; // BUG: knots break if less than 4
+                    // let mut y_knots: Vec<f32> = vec![first_dot.position.y, last_dot.position.y];
+                    // x_knots.extend(sorted_dots.iter().map(|dot| dot.position.x));
+                    // y_knots.extend(sorted_dots.iter().map(|dot| dot.position.y));
+                    // x_knots.push(1.0);
+                    // y_knots.push(last_dot.position.y);
+                }
+            }
 
             // Draw straight line connectors if "Straight" is active
             if self.straight_mode {
@@ -298,59 +373,128 @@ impl canvas::Program<Dot> for DrawDotsAndLines<'_> {
                 }
             }
 
+            // Handle curve drawing
+            if let Some(curve_mode) = self.curve_mode {
+                let mut path = Path::new(|builder| {
+                    match curve_mode {
+                        CurveAlgorithm::CatmullRom => {
+                            let n_points = 200; // Number of interpolated points
+                            for i in 0..n_points {
+                                let t = i as f32 / (n_points - 1) as f32;
+                                let segment_index =
+                                    ((sorted_dots.len() - 1) as f32 * t).floor() as usize;
 
+                                // Clamp control points for safe interpolation
+                                let p0 = if segment_index == 0 {
+                                    &sorted_dots[segment_index]
+                                } else {
+                                    &sorted_dots[segment_index - 1]
+                                };
+                                let p1 = &sorted_dots[segment_index];
+                                let p2 = &sorted_dots
+                                    [std::cmp::min(segment_index + 1, sorted_dots.len() - 1)];
+                                let p3 = &sorted_dots
+                                    [std::cmp::min(segment_index + 2, sorted_dots.len() - 1)];
 
- // Draw Catmull-Rom or Bézier curves
- if let Some(curve_mode) = self.curve_mode {
-    let mut path = Path::new(|builder| {
-        let n_points = 200; // Number of interpolated points
+                                let local_t = (t * (sorted_dots.len() - 1) as f32) % 1.0;
 
-        for i in 0..n_points {
-            let t = i as f32 / (n_points - 1) as f32;
-            let segment_index = ((sorted_dots.len() - 1) as f32 * t).floor() as usize;
+                                let alpha = 0.3; // Adjust as needed, but 0.5 is typical for centripetal splines
 
-            // Clamp control points for safe interpolation
-            let p0 = if segment_index == 0 {
-                &sorted_dots[segment_index]
-            } else {
-                &sorted_dots[segment_index - 1]
-            };
-            let p1 = &sorted_dots[segment_index];
-            let p2 = &sorted_dots[std::cmp::min(segment_index + 1, sorted_dots.len() - 1)];
-            let p3 = &sorted_dots[std::cmp::min(segment_index + 2, sorted_dots.len() - 1)];
+                                let (x, y) = (
+                                    catmull_rom_centripetal(
+                                        local_t,
+                                        p0.position.x,
+                                        p1.position.x,
+                                        p2.position.x,
+                                        p3.position.x,
+                                        alpha,
+                                    ),
+                                    catmull_rom_centripetal(
+                                        local_t,
+                                        p0.position.y,
+                                        p1.position.y,
+                                        p2.position.y,
+                                        p3.position.y,
+                                        alpha,
+                                    ),
+                                );
 
-            let local_t = (t * (sorted_dots.len() - 1) as f32) % 1.0;
+                                if i == 0 {
+                                    builder.move_to(Point { x, y });
+                                } else {
+                                    builder.line_to(Point { x, y });
+                                }
+                            }
+                        }
+                        CurveAlgorithm::MonotonicSpline => {
+                            let xs: Vec<f32> =
+                                sorted_dots.iter().map(|dot| dot.position.x).collect();
+                            let ys: Vec<f32> =
+                                sorted_dots.iter().map(|dot| dot.position.y).collect();
 
-            let (x, y) = match curve_mode {
-                CurveAlgorithm::CatmullRom => {
-                    let x = catmull_rom_centripetal(local_t, p0.position.x, p1.position.x, p2.position.x, p3.position.x, 0.5);
-                    let y = catmull_rom_centripetal(local_t, p0.position.y, p1.position.y, p2.position.y, p3.position.y, 0.5);
-                    (x, y)
-                }
-                // CurveAlgorithm::Bezier => {
-                //     let x = bezier(local_t, p0.position.x, p1.position.x, p2.position.x, p3.position.x);
-                //     let y = bezier(local_t, p0.position.y, p1.position.y, p2.position.y, p3.position.y);
-                //     (x, y)
-                // }
-            };
+                            if xs.len() < 2 {
+                                // Skip drawing if not enough points
+                                return;
+                            }
 
-            if i == 0 {
-                builder.move_to(Point { x, y });
-            } else {
-                builder.line_to(Point { x, y });
+                            if let Some(interpolated_points) = monotonic_cubic_spline(&xs, &ys) {
+                                for (i, &(x, y)) in interpolated_points.iter().enumerate() {
+                                    // Ensure finite values for rendering
+                                    if !x.is_finite() || !y.is_finite() {
+                                        eprintln!("Invalid interpolated point: x={}, y={}", x, y);
+                                        continue; // Skip invalid points
+                                    }
+
+                                    if i == 0 {
+                                        builder.move_to(Point { x, y });
+                                    } else {
+                                        builder.line_to(Point { x, y });
+                                    }
+                                }
+                            } else {
+                                eprintln!("Monotonic cubic spline interpolation failed.");
+                            }
+                        }
+
+                        CurveAlgorithm::NaturalCubicSpline => {
+                            if sorted_dots.len() >= 2 {
+                                let mut x_points: Vec<f32> =
+                                    sorted_dots.iter().map(|dot| dot.position.x).collect();
+                                let mut y_points: Vec<f32> =
+                                    sorted_dots.iter().map(|dot| dot.position.y).collect();
+
+                                // Compute natural cubic spline coefficients
+                                let x_spline = compute_natural_cubic_spline(&x_points);
+                                let y_spline = compute_natural_cubic_spline(&y_points);
+
+                                let n_points_per_segment = 50; // Number of points per segment for smoothness
+                                for i in 0..sorted_dots.len() - 1 {
+                                    for j in 0..n_points_per_segment {
+                                        let t = j as f32 / (n_points_per_segment as f32);
+
+                                        let x = evaluate_cubic(&x_spline[i], t);
+                                        let y = evaluate_cubic(&y_spline[i], t);
+
+                                        if i == 0 && j == 0 {
+                                            builder.move_to(Point { x, y });
+                                        } else {
+                                            builder.line_to(Point { x, y });
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+
+                frame.stroke(
+                    &path,
+                    Stroke::default()
+                        .with_width(2.0)
+                        .with_color(theme.palette().text),
+                );
             }
-        }
-    });
-
-    frame.stroke(
-        &path,
-        Stroke::default()
-            .with_width(2.0)
-            .with_color(theme.palette().text),
-    );
-}
-}
-        );
+        });
 
         vec![content]
     }
@@ -366,8 +510,7 @@ fn safe_powf_distance(a: f32, b: f32, alpha: f32) -> f32 {
     }
 }
 
-fn catmull_rom_centripetal(
-    t: f32, p0: f32, p1: f32, p2: f32, p3: f32, alpha: f32) -> f32 {
+fn catmull_rom_centripetal(t: f32, p0: f32, p1: f32, p2: f32, p3: f32, alpha: f32) -> f32 {
     let d01 = safe_powf_distance(p0, p1, alpha);
     let d12 = safe_powf_distance(p1, p2, alpha);
     let d23 = safe_powf_distance(p2, p3, alpha);
@@ -396,4 +539,120 @@ fn catmull_rom_centripetal(
     let b2 = (t3 - t) / (t3 - t1) * a2 + (t - t1) / (t3 - t1) * a3;
 
     (t2 - t) / (t2 - t1) * b1 + (t - t1) / (t2 - t1) * b2
+}
+
+fn monotonic_cubic_spline(xs: &[f32], ys: &[f32]) -> Option<Vec<(f32, f32)>> {
+    if xs.len() != ys.len() || xs.len() < 2 {
+        return None; // Invalid input
+    }
+
+    let n = xs.len();
+    let mut slopes = vec![0.0; n - 1];
+    let mut tangents = vec![0.0; n];
+
+    // Step 1: Compute slopes between points
+    for i in 0..n - 1 {
+        slopes[i] = (ys[i + 1] - ys[i]) / (xs[i + 1] - xs[i]);
+    }
+
+    // Step 2: Compute tangents
+    tangents[0] = slopes[0];
+    tangents[n - 1] = slopes[n - 2];
+    for i in 1..n - 1 {
+        tangents[i] = (slopes[i - 1] + slopes[i]) / 2.0;
+    }
+
+    // Step 3: Adjust tangents to ensure monotonicity
+    for i in 0..n - 1 {
+        if slopes[i] == 0.0 {
+            tangents[i] = 0.0;
+            tangents[i + 1] = 0.0;
+        } else {
+            let alpha = tangents[i] / slopes[i];
+            let beta = tangents[i + 1] / slopes[i];
+            let s = alpha * alpha + beta * beta;
+            if s > 9.0 {
+                let tau = 3.0 / s.sqrt();
+                tangents[i] = tau * alpha * slopes[i];
+                tangents[i + 1] = tau * beta * slopes[i];
+            }
+        }
+    }
+
+    // Step 4: Interpolate
+    let mut result = Vec::new();
+    let num_points = 100; // Number of points to sample for rendering
+    for i in 0..n - 1 {
+        let x0 = xs[i];
+        let x1 = xs[i + 1];
+        let y0 = ys[i];
+        let y1 = ys[i + 1];
+        let t0 = tangents[i];
+        let t1 = tangents[i + 1];
+
+        for j in 0..=num_points {
+            let t = j as f32 / num_points as f32;
+            let h00 = (1.0 + 2.0 * t) * (1.0 - t) * (1.0 - t);
+            let h10 = t * (1.0 - t) * (1.0 - t);
+            let h01 = t * t * (3.0 - 2.0 * t);
+            let h11 = t * t * (t - 1.0);
+
+            let x = x0 + t * (x1 - x0);
+            let y = h00 * y0 + h10 * (x1 - x0) * t0 + h01 * y1 + h11 * (x1 - x0) * t1;
+
+            result.push((x, y));
+        }
+    }
+
+    Some(result)
+}
+fn quadratic_bezier(t: f32, p0: f32, p1: f32, p2: f32) -> f32 {
+    let u = 1.0 - t;
+    (u * u * p0) + (2.0 * u * t * p1) + (t * t * p2)
+}
+
+fn compute_natural_cubic_spline(points: &[f32]) -> Vec<[f32; 4]> {
+    let n = points.len() - 1;
+    let mut a = points.to_vec();
+    let mut b = vec![0.0; n];
+    let mut d = vec![0.0; n];
+    let mut h = vec![0.0; n];
+    let mut alpha = vec![0.0; n];
+
+    for i in 0..n {
+        // h[i] = 1.0; // Assuming equal spacing between points
+        h[i] = 1.0;
+
+    }
+
+    for i in 1..n {
+        alpha[i] = (3.0 / h[i]) * (a[i + 1] - a[i]) - (3.0 / h[i - 1]) * (a[i] - a[i - 1]);
+    }
+
+    let mut c = vec![0.0; points.len()];
+    let mut l = vec![1.0; points.len()];
+    let mut mu = vec![0.0; points.len()];
+    let mut z = vec![0.0; points.len()];
+
+    for i in 1..n {
+        l[i] = 2.0 * (points[i + 1] - points[i - 1]) - h[i - 1] * mu[i - 1];
+        mu[i] = h[i] / l[i];
+        z[i] = (alpha[i] - h[i - 1] * z[i - 1]) / l[i];
+    }
+
+    for i in (0..n).rev() {
+        c[i] = z[i] - mu[i] * c[i + 1];
+        b[i] = (a[i + 1] - a[i]) / h[i] - h[i] * (c[i + 1] + 2.0 * c[i]) / 3.0;
+        d[i] = (c[i + 1] - c[i]) / (3.0 * h[i]);
+    }
+
+    let mut coefficients = Vec::new();
+    for i in 0..n {
+        coefficients.push([a[i], b[i], c[i], d[i]]);
+    }
+
+    coefficients
+}
+fn evaluate_cubic(coefficients: &[f32; 4], t: f32) -> f32 {
+    coefficients[0] + coefficients[1] * t + coefficients[2] * t * t + coefficients[3] * t * t * t
 }
