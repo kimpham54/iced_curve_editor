@@ -91,7 +91,7 @@ impl ExampleCanvas {
                             "Straight: Off"
                         })
                         .on_press(Message::Straight),
-                        if self.dots.len() >= 4 {
+                        if self.dots.len() >= 4 { // in the crate, Catmull-Rom spline and linear basis require ≥4 values in the knot vector.
                             button(match self.curve_mode {
                                 None => "Curve: Off",
                                 Some(CurveAlgorithm::CatmullRom) => "Curve: Catmull-Rom",
@@ -254,6 +254,7 @@ impl canvas::Program<Dot> for DrawDotsAndLines<'_> {
             let mut sorted_dots: Vec<Dot> = Vec::new(); // Kim: Outside of if statement so it can be used below
             dbg!(&sorted_dots);
 
+            if !self.dots.is_empty() {
             if self.straight_mode || self.curve_mode.is_some() {
                 sorted_dots = self.dots.to_vec();
                 sorted_dots.sort_by(|a, b| a.position.x.partial_cmp(&b.position.x).unwrap());
@@ -271,19 +272,8 @@ impl canvas::Program<Dot> for DrawDotsAndLines<'_> {
                         y: last_dot.position.y,
                     },
                 };
-                let dot_test1 = Dot {
-                    position: Point { x: 0.0, y: 0.0 },
-                };
-                let dot_test2 = Dot {
-                    position: Point {
-                        x: bounds_width,
-                        y: 0.0,
-                    },
-                };
                 sorted_dots.push(first_control_dot);
                 sorted_dots.push(last_control_dot);
-                // sorted_dots.push(dot_test1);
-                // sorted_dots.push(dot_test2);
                 sorted_dots.sort_by(|a, b| a.position.x.partial_cmp(&b.position.x).unwrap());
                 dbg!(&sorted_dots);
 
@@ -296,7 +286,7 @@ impl canvas::Program<Dot> for DrawDotsAndLines<'_> {
                 // y_knots.extend(sorted_dots.iter().map(|dot| dot.position.y));
                 // x_knots.push(1.0);
                 // y_knots.push(last_dot.position.y);
-            }
+            }}
 
             // Draw straight line connectors if "Straight" is active
             if self.straight_mode {
